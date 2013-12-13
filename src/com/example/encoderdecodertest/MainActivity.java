@@ -26,6 +26,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
     private static final boolean VERBOSE = true;           // lots of logging
     private static final boolean DEBUG_SAVE_FILE = true;   // save copy of encoded movie
     private static final String DEBUG_FILE_NAME_BASE = "/sdcard/test.";
+    private static final String DEBUG_OUT_FILE_NAME_BASE = "/sdcard/decode.";
 
     // parameters for the encoder
     private static final String MIME_TYPE = "video/avc";    // H.264 Advanced Video Coding
@@ -125,7 +126,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
         @Override
         public void run() {
             try {
-                mTest.encodeDecodeVideoFromBuffer(true);
+                mTest.encodeDecodeVideoFromBuffer(false);
             } catch (Throwable th) {
                 mThrowable = th;
             }
@@ -527,13 +528,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
         // Save a copy to disk.  Useful for debugging the test.  Note this is a raw elementary
         // stream, not a .mp4 file, so not all players will know what to do with it.
         FileOutputStream outputStream = null;
+        FileOutputStream outputStream_out = null;
         if (DEBUG_SAVE_FILE) {
             String fileName = DEBUG_FILE_NAME_BASE + mWidth + "x" + mHeight + ".mp4";
+            String fileName_out = DEBUG_OUT_FILE_NAME_BASE + mWidth + "x" + mHeight + ".yuv";
             try {
                 outputStream = new FileOutputStream(fileName);
                 Log.d(TAG, "encoded output will be saved as " + fileName);
             } catch (IOException ioe) {
                 Log.w(TAG, "Unable to create debug output file " + fileName);
+                throw new RuntimeException(ioe);
+            }
+            try {
+                outputStream_out = new FileOutputStream(fileName_out);
+                Log.d(TAG, "decoded output will be saved as " + fileName_out);
+            } catch (IOException ioe) {
+                Log.w(TAG, "Unable to create debug decode output file " + fileName_out);
                 throw new RuntimeException(ioe);
             }
         }
@@ -629,6 +639,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
                             Log.w(TAG, "failed writing debug data to file");
                             throw new RuntimeException(ioe);
                         }
+                        Log.w(TAG, "successful writing debug data to file");
                     }
                     if ((info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0) {
                         // Codec config info.  Only expected on first packet.  One way to
@@ -638,6 +649,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
                         MediaFormat format =
                                 MediaFormat.createVideoFormat(MIME_TYPE, mWidth, mHeight);
                         format.setByteBuffer("csd-0", encodedData);
+                        //format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar);
+                        //format.setInteger("color-format", 19);
                         decoder.configure(format, toSurface ? outputSurface : null,
                                 null, 0);
                         decoder.start();
@@ -696,6 +709,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
                         outputFrame.limit(info.offset + info.size);
 
                         rawSize += info.size;
+                        
+                        if (outputStream_out != null) {
+                            byte[] data = new byte[info.size];
+                            outputFrame.get(data);
+                            outputFrame.position(info.offset);
+                            try {
+                                outputStream_out.write(data);
+                            } catch (IOException ioe) {
+                                Log.w(TAG, "failed writing debug data to file");
+                                throw new RuntimeException(ioe);
+                            }
+                            Log.w(TAG, "successful writing debug data to file");
+                        }
+                        
                         if (info.size == 0) {
                             if (VERBOSE) Log.d(TAG, "got empty frame");
                         } else {
@@ -750,6 +777,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback{
                 outputStream.close();
             } catch (IOException ioe) {
                 Log.w(TAG, "failed closing debug file");
+                throw new RuntimeException(ioe);
+            }
+        }        
+        if (outputStream_out != null) {
+            try {
+                outputStream_out.close();
+            } catch (IOException ioe) {
+                Log.w(TAG, "failed closing debug decode output file");
                 throw new RuntimeException(ioe);
             }
         }
